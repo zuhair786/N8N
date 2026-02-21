@@ -1,0 +1,291 @@
+{
+  "name": "Daily Football Video Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 12 * * *"
+            }
+          ]
+        }
+      },
+      "id": "b1a2c3d4-0001-4a00-b000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=YOUR_GEMINI_API_KEY",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: 'What are the top 5 hottest football/soccer events and news happening right now today? For each event provide: a headline and a 1-2 sentence summary. Format as a numbered list.' }] }], tools: [{ google_search: {} }] }) }}",
+        "options": {}
+      },
+      "id": "b1a2c3d4-0002-4a00-b000-000000000002",
+      "name": "Gemini: Fetch Football Events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [280, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst candidates = response.candidates || [];\nlet footballNews = '';\n\nif (candidates.length > 0 && candidates[0].content && candidates[0].content.parts) {\n  footballNews = candidates[0].content.parts.map(p => p.text).join('\\n');\n}\n\nif (!footballNews) {\n  throw new Error('No football news returned from Gemini');\n}\n\nconst systemInstruction = [\n  'You are a video content creator specializing in football/soccer content.',\n  'Given the football news below, create a concise video generation prompt.',\n  'Output ONLY valid JSON (no markdown, no code fences) with these exact fields:',\n  '\"video_prompt\": A visually descriptive prompt under 200 words for AI video generation.',\n  'Include scene descriptions, mood, color palette, and camera movement suggestions.',\n  '\"image_search_queries\": An array of 3 to 5 short search queries for relevant stock images.',\n  '\"title\": A short, catchy video title.'\n].join(' ');\n\nreturn [{\n  json: {\n    gemini_body: {\n      contents: [\n        {\n          role: 'user',\n          parts: [{ text: systemInstruction + '\\n\\nFootball news:\\n\\n' + footballNews }]\n        }\n      ],\n      generationConfig: {\n        responseMimeType: 'application/json',\n        temperature: 0.7\n      }\n    }\n  }\n}];"
+      },
+      "id": "b1a2c3d4-0003-4a00-b000-000000000003",
+      "name": "Prepare Video Prompt Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=YOUR_GEMINI_API_KEY",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.gemini_body) }}",
+        "options": {}
+      },
+      "id": "b1a2c3d4-0004-4a00-b000-000000000004",
+      "name": "Gemini: Generate Video Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst candidates = response.candidates || [];\nlet content = '';\n\nif (candidates.length > 0 && candidates[0].content && candidates[0].content.parts) {\n  content = candidates[0].content.parts.map(p => p.text).join('');\n}\n\nlet parsed;\ntry {\n  const jsonMatch = content.match(/```json?\\s*([\\s\\S]*?)```/);\n  parsed = JSON.parse(jsonMatch ? jsonMatch[1].trim() : content.trim());\n} catch (e) {\n  parsed = {\n    video_prompt: content || 'Dynamic football highlights montage with stadium atmosphere',\n    image_search_queries: [\n      'football match action shot',\n      'football stadium aerial view',\n      'football goal celebration'\n    ],\n    title: \"Today's Football Highlights\"\n  };\n}\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.video_prompt = parsed.video_prompt;\nstaticData.title = parsed.title;\n\nreturn parsed.image_search_queries.map(query => ({\n  json: { query }\n}));"
+      },
+      "id": "b1a2c3d4-0005-4a00-b000-000000000005",
+      "name": "Parse Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.pexels.com/v1/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "query", "value": "={{ $json.query }}" },
+            { "name": "per_page", "value": "2" },
+            { "name": "orientation", "value": "landscape" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "YOUR_PEXELS_API_KEY" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1a2c3d4-0006-4a00-b000-000000000006",
+      "name": "Fetch Images",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst staticData = $getWorkflowStaticData('global');\nconst imageUrls = [];\n\nfor (const item of items) {\n  const photos = item.json.photos || [];\n  for (const photo of photos) {\n    if (photo.src && photo.src.large) {\n      imageUrls.push(photo.src.large);\n    }\n  }\n}\n\nreturn [{\n  json: {\n    video_prompt: staticData.video_prompt || '',\n    title: staticData.title || 'Football Highlights',\n    image_urls: imageUrls,\n    primary_image: imageUrls[0] || ''\n  }\n}];"
+      },
+      "id": "b1a2c3d4-0007-4a00-b000-000000000007",
+      "name": "Aggregate Image URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.dev.runwayml.com/v1/image_to_video",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_RUNWAY_API_KEY" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ promptImage: $json.primary_image, promptText: $json.video_prompt, model: 'gen3a_turbo', duration: 10 }) }}",
+        "options": {}
+      },
+      "id": "b1a2c3d4-0008-4a00-b000-000000000008",
+      "name": "Create Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1960, 300]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "b1a2c3d4-0009-4a00-b000-000000000009",
+      "name": "Wait for Video Processing",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2240, 300],
+      "webhookId": "wait-video-processing"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.dev.runwayml.com/v1/tasks/{{ $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_RUNWAY_API_KEY" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1a2c3d4-0010-4a00-b000-000000000010",
+      "name": "Poll Video Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2520, 300]
+    },
+    {
+      "parameters": {
+        "content": "## Setup Instructions\n\nReplace the following placeholder values with your actual API keys:\n\n1. **YOUR_GEMINI_API_KEY** - Get from https://aistudio.google.com/apikey\n   (Used in TWO nodes: \"Fetch Football Events\" and \"Generate Video Prompt\")\n2. **YOUR_PEXELS_API_KEY** - Get from https://www.pexels.com/api/new/\n3. **YOUR_RUNWAY_API_KEY** - Get from https://dev.runwayml.com/\n\n### Workflow Summary\n- Triggers daily at 12:00 PM (noon)\n- Uses Gemini 2.0 Flash + Google Search grounding to fetch live football news\n- Uses Gemini 2.0 Flash to generate a video prompt + image search queries\n- Fetches relevant stock images from Pexels\n- Sends prompt + images to Runway ML for video generation\n- Polls Runway for completion after 60s",
+        "height": 380,
+        "width": 520
+      },
+      "id": "b1a2c3d4-0099-4a00-b000-000000000099",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-60, -160]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Gemini: Fetch Football Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: Fetch Football Events": {
+      "main": [
+        [
+          {
+            "node": "Prepare Video Prompt Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Video Prompt Request": {
+      "main": [
+        [
+          {
+            "node": "Gemini: Generate Video Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: Generate Video Prompt": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Fetch Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Images": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Image URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Image URLs": {
+      "main": [
+        [
+          {
+            "node": "Create Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Video": {
+      "main": [
+        [
+          {
+            "node": "Wait for Video Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Video Processing": {
+      "main": [
+        [
+          {
+            "node": "Poll Video Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2",
+  "tags": []
+}

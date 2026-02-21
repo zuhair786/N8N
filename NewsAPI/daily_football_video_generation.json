@@ -1,0 +1,371 @@
+{
+  "name": "Daily Football Video Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 12 * * *"
+            }
+          ]
+        }
+      },
+      "id": "4515d6d0-8071-4791-888f-00f4221ff7d1",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        16,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://newsapi.org/v2/top-headlines",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "category",
+              "value": "sports"
+            },
+            {
+              "name": "q",
+              "value": "football"
+            },
+            {
+              "name": "language",
+              "value": "en"
+            },
+            {
+              "name": "pageSize",
+              "value": "5"
+            },
+            {
+              "name": "apiKey",
+              "value": "YOUR_NEWSAPI_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "776e3c41-ad39-4b57-8097-23ae2b1255ac",
+      "name": "Fetch Football News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        304,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const articles = $input.first().json.articles || [];\n\nconst headlines = articles\n  .slice(0, 5)\n  .map((a, i) => `${i + 1}. ${a.title}${a.description ? ' - ' + a.description : ''}`)\n  .join('\\n');\n\nconst systemPrompt = [\n  'You are a video content creator specializing in football/soccer content.',\n  'Given a list of football news headlines, create a concise video generation prompt.',\n  'Output ONLY valid JSON (no markdown, no code fences) with these exact fields:',\n  '\"video_prompt\": A visually descriptive prompt under 200 words for AI video generation.',\n  'Include scene descriptions, mood, color palette, and camera movement suggestions.',\n  '\"image_search_queries\": An array of 3 to 5 short search queries for relevant stock images.',\n  '\"title\": A short, catchy video title.'\n].join(' ');\n\nreturn [{\n  json: {\n    openai_body: {\n      model: 'gpt-4o',\n      messages: [\n        { role: 'system', content: systemPrompt },\n        {\n          role: 'user',\n          content: 'Create a video prompt from these trending football headlines:\\n\\n' + headlines\n        }\n      ],\n      temperature: 0.7,\n      response_format: { type: 'json_object' }\n    }\n  }\n}];"
+      },
+      "id": "7b9a1b46-8541-46b3-815f-996fb5303e17",
+      "name": "Prepare LLM Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENAI_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.openai_body) }}",
+        "options": {}
+      },
+      "id": "c40fa462-dfd2-4567-a244-93e5fe9684ab",
+      "name": "Call OpenAI API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        864,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst content = response.choices[0].message.content;\n\nlet parsed;\ntry {\n  const jsonMatch = content.match(/```json?\\s*([\\s\\S]*?)```/);\n  parsed = JSON.parse(jsonMatch ? jsonMatch[1].trim() : content.trim());\n} catch (e) {\n  parsed = {\n    video_prompt: content,\n    image_search_queries: [\n      'football match action shot',\n      'football stadium aerial view',\n      'football goal celebration'\n    ],\n    title: \"Today's Football Highlights\"\n  };\n}\n\n// Store video prompt in workflow static data for retrieval after image fetching\nconst staticData = $getWorkflowStaticData('global');\nstaticData.video_prompt = parsed.video_prompt;\nstaticData.title = parsed.title;\n\n// Output one item per image search query\nreturn parsed.image_search_queries.map(query => ({\n  json: { query }\n}));"
+      },
+      "id": "59a0e2e9-11c2-4e2b-8e61-21bc2e0baf81",
+      "name": "Parse LLM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.pexels.com/v1/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.query }}"
+            },
+            {
+              "name": "per_page",
+              "value": "2"
+            },
+            {
+              "name": "orientation",
+              "value": "landscape"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "YOUR_PEXELS_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cd6853be-e8c9-4ca6-9166-0a0280c25a5e",
+      "name": "Fetch Images",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1424,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst staticData = $getWorkflowStaticData('global');\nconst imageUrls = [];\n\nfor (const item of items) {\n  const photos = item.json.photos || [];\n  for (const photo of photos) {\n    if (photo.src && photo.src.large) {\n      imageUrls.push(photo.src.large);\n    }\n  }\n}\n\nreturn [{\n  json: {\n    video_prompt: staticData.video_prompt || '',\n    title: staticData.title || 'Football Highlights',\n    image_urls: imageUrls,\n    primary_image: imageUrls[0] || ''\n  }\n}];"
+      },
+      "id": "c7cda801-aa82-48aa-82fa-bb2a7b27cfd6",
+      "name": "Aggregate Image URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.dev.runwayml.com/v1/image_to_video",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_RUNWAY_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ promptImage: $json.primary_image, promptText: $json.video_prompt, model: 'gen3a_turbo', duration: 10 }) }}",
+        "options": {}
+      },
+      "id": "3a70771b-9ba5-41bd-ac34-184179315c76",
+      "name": "Create Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1984,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 60
+      },
+      "id": "b0f32cac-a164-4d4d-aff1-c58c2a139eab",
+      "name": "Wait for Video Processing",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2256,
+        400
+      ],
+      "webhookId": "wait-video-processing"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.dev.runwayml.com/v1/tasks/{{ $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_RUNWAY_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "64f1b356-97d0-4f7b-b6d7-ecd6db5c56f7",
+      "name": "Poll Video Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Setup Instructions\n\nReplace the following placeholder values with your actual API keys:\n\n1. **YOUR_NEWSAPI_KEY** - Get from https://newsapi.org/register\n2. **YOUR_OPENAI_API_KEY** - Get from https://platform.openai.com/api-keys\n3. **YOUR_PEXELS_API_KEY** - Get from https://www.pexels.com/api/new/\n4. **YOUR_RUNWAY_API_KEY** - Get from https://dev.runwayml.com/\n\n### Workflow Summary\n- Triggers daily at 12:00 PM (noon)\n- Fetches top 5 football news headlines\n- Uses GPT-4o to generate a video prompt + image search queries\n- Fetches relevant stock images from Pexels\n- Sends prompt + images to Runway ML for video generation\n- Polls Runway for completion after 60s",
+        "height": 380,
+        "width": 500
+      },
+      "id": "0b935901-020d-4e6b-bcd3-5b02d8501c5f",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -64
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Football News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Football News": {
+      "main": [
+        [
+          {
+            "node": "Prepare LLM Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare LLM Input": {
+      "main": [
+        [
+          {
+            "node": "Call OpenAI API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call OpenAI API": {
+      "main": [
+        [
+          {
+            "node": "Parse LLM Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse LLM Response": {
+      "main": [
+        [
+          {
+            "node": "Fetch Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Images": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Image URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Image URLs": {
+      "main": [
+        [
+          {
+            "node": "Create Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Video": {
+      "main": [
+        [
+          {
+            "node": "Wait for Video Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Video Processing": {
+      "main": [
+        [
+          {
+            "node": "Poll Video Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "3896f762-bc88-40e4-8050-90308c2c711f",
+  "meta": {
+    "instanceId": "9864951ea4472b9d0ea716c66bb2527efb446aa6309ab9f74077ab1db432402b"
+  },
+  "id": "YNsDX_JIZyn3Rmhcm0aNn",
+  "tags": []
+}
