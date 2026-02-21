@@ -22,5 +22,7 @@ Automated n8n workflow that generates a daily football highlights video using **
 | Runway ML               | Video generation             |
 
 
-> **Note:** No workflow screenshot is available for this variant yet.
+## Workflow Screenshot
+
+![Workflow](daily_football_vedio_generation_openai.png)
 
